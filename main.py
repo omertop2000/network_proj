@@ -5,6 +5,10 @@ from speed_test_client import SpeedTestClient
 
 stop_event = threading.Event()
 
+#we did main to test our classes
+
+
+
 def run_server(team_name):
     server = SpeedTestServer(team_name)
     server.start()
