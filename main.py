@@ -39,7 +39,6 @@ time.sleep(2)
 # Start clients
 client_threads = [
     threading.Thread(target=run_client, args=("TheIndigenous_client", 1024 * 1024 * 1024, 1, 2), daemon=True),
-    threading.Thread(target=run_client, args=("123", 1024 * 1024 * 1024, 1, 2), daemon=True)
 ]
 
 for thread in client_threads:

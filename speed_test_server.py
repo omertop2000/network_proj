@@ -37,14 +37,15 @@ class SpeedTestServer:
     PAYLOAD_MESSAGE_TYPE = 0x4
 
     def __init__(self, team_name,broadcast_port: int = 13117):
-    """Initialize a new SpeedTestServer instance.
-    
-    Sets up the server with random TCP and UDP ports, initializes logging,
-    and sets the broadcast port for server discovery.
-    
-    Args:
-        broadcast_port (int): Port number for broadcasting server offers. Defaults to 13117.
-    """        self.team_name = team_name
+        """Initialize a new SpeedTestServer instance.
+
+        Sets up the server with random TCP and UDP ports, initializes logging,
+        and sets the broadcast port for server discovery.
+
+        Args:
+            broadcast_port (int): Port number for broadcasting server offers. Defaults to 13117.
+        """
+        self.team_name = team_name
         self.broadcast_port = broadcast_port
         self.tcp_port = self._get_random_port()
         self.udp_port = self._get_random_port()
@@ -52,26 +53,28 @@ class SpeedTestServer:
         self.logger = setup_logger('SpeedTestServer', Fore.CYAN)
 
     def _get_random_port(self) -> int:
- """Get an available random port number.
+        """Get an available random port number.
     
-    Returns:
-        int: An available port number that can be used for TCP or UDP connections.
-    """        with socket.socket() as s:
+        Returns:
+            int: An available port number that can be used for TCP or UDP connections.
+        """
+        with socket.socket() as s:
             s.bind(('', 0))
             return s.getsockname()[1]
 
     def _create_offer_message(self) -> bytes:
-    """Create a formatted offer message for broadcasting.
-    
-    Creates a binary message containing:
-    - Magic cookie (4 bytes)
-    - Message type (1 byte)
-    - UDP port (2 bytes) 
-    - TCP port (2 bytes)
-    
-    Returns:
-        bytes: Formatted binary offer message ready for broadcasting.
-    """        return struct.pack('!IbHH',
+        """Create a formatted offer message for broadcasting.
+
+        Creates a binary message containing:
+        - Magic cookie (4 bytes)
+        - Message type (1 byte)
+        - UDP port (2 bytes)
+        - TCP port (2 bytes)
+
+        Returns:
+            bytes: Formatted binary offer message ready for broadcasting.
+        """
+        return struct.pack('!IbHH',
                            self.MAGIC_COOKIE,
                            self.OFFER_MESSAGE_TYPE,
                            self.udp_port,
@@ -79,12 +82,13 @@ class SpeedTestServer:
                            )
 
     def _broadcast_offers(self):
-  """Continuously broadcast server offers over UDP.
-    
-    Runs in a separate thread, sending offer messages every second until
-    server is stopped. Uses UDP broadcast to reach all potential clients
-    on the network.
-    """        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        """Continuously broadcast server offers over UDP.
+
+        Runs in a separate thread, sending offer messages every second until
+        server is stopped. Uses UDP broadcast to reach all potential clients
+        on the network.
+        """
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             while self.running:
                 try:
@@ -96,18 +100,19 @@ class SpeedTestServer:
 
     def _handle_tcp_client(self, client_socket: socket.socket,
                            address: Tuple[str, int]):
-   """Handle individual TCP client connections.
-    
-    Receives requested file size from client and streams random data
-    in response.
-    
-    Args:
-        client_socket (socket.socket): Connected client socket
-        address (Tuple[str, int]): Client's address and port
-        
-    Notes:
-        Closes client socket when transfer is complete or on error.
-    """        try:
+        """Handle individual TCP client connections.
+
+        Receives requested file size from client and streams random data
+        in response.
+
+        Args:
+            client_socket (socket.socket): Connected client socket
+            address (Tuple[str, int]): Client's address and port
+
+        Notes:
+            Closes client socket when transfer is complete or on error.
+        """
+        try:
             # Receive the requested file size
             size_str = client_socket.recv(1024).decode().strip()
             file_size = int(size_str)
@@ -124,8 +129,7 @@ class SpeedTestServer:
                 bytes_sent += current_chunk
 
             self.logger.info(
-                f"Completed TCP transfer of {file_size} bytes to {address},{self.team_name}"
-            )
+                f"Completed TCP transfer of {file_size} bytes to {address},{self.team_name}")
 
         except Exception as e:
             self.logger.error(f"Error handling TCP client {address}: {e}")
@@ -133,18 +137,19 @@ class SpeedTestServer:
             client_socket.close()
 
     def _handle_udp_client(self, request: bytes, address: Tuple[str, int]):
-    """Handle individual UDP client requests.
-    
-    Parses request for file size and sends data in segmented packets
-    with sequence numbers.
-    
-    Args:
-        request (bytes): Client's request message containing file size
-        address (Tuple[str, int]): Client's address and port
-        
-    Notes:
-        Implements small delay between packets to prevent network congestion.
-    """        try:
+        """Handle individual UDP client requests.
+
+        Parses request for file size and sends data in segmented packets
+        with sequence numbers.
+
+        Args:
+            request (bytes): Client's request message containing file size
+            address (Tuple[str, int]): Client's address and port
+
+        Notes:
+            Implements small delay between packets to prevent network congestion.
+        """
+        try:
             # Parse request
             magic_cookie, msg_type, file_size = struct.unpack('!IbQ', request)
 
@@ -176,18 +181,19 @@ class SpeedTestServer:
                     time.sleep(0.001)  # Small delay to prevent overwhelming the network
 
             self.logger.info(
-                f"Completed UDP transfer of {file_size} bytes to {address}"
+                f"Completed UDP transfer of {file_size} bytes to {address},{self.team_name}"
             )
 
         except Exception as e:
             self.logger.error(f"Error handling UDP client {address}: {e}")
 
     def _start_tcp_server(self):
-"""Start TCP server to handle client connections.
-    
-    Listens for incoming TCP connections and spawns handler thread
-    for each new client. Runs until server is stopped.
-    """        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        """Start TCP server to handle client connections.
+
+            Listens for incoming TCP connections and spawns handler thread
+            for each new client. Runs until server is stopped.
+            """
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.bind(('', self.tcp_port))
             sock.listen(5)
 
@@ -205,11 +211,12 @@ class SpeedTestServer:
                         self.logger.error(f"Error accepting TCP connection: {e}")
 
     def _start_udp_server(self):
-   """Start UDP server to handle client requests.
-    
-    Listens for incoming UDP requests and spawns handler thread
-    for each new client. Runs until server is stopped.
-    """        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+       """Start UDP server to handle client requests.
+
+        Listens for incoming UDP requests and spawns handler thread
+        for each new client. Runs until server is stopped.
+        """
+       with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.bind(('', self.udp_port))
 
             while self.running:
@@ -227,15 +234,16 @@ class SpeedTestServer:
                         self.logger.error(f"Error handling UDP request: {e}")
 
     def start(self):
-  """Start the speed test server.
-    
-    Launches three daemon threads:
-    - Broadcast thread for sending offers
-    - TCP server thread for handling TCP connections
-    - UDP server thread for handling UDP requests
-    
-    Displays server IP address and runs until interrupted.
-    """        self.running = True
+        """Start the speed test server.
+
+        Launches three daemon threads:
+        - Broadcast thread for sending offers
+        - TCP server thread for handling TCP connections
+        - UDP server thread for handling UDP requests
+
+        Displays server IP address and runs until interrupted.
+        """
+        self.running = True
 
         # Start broadcast thread
         broadcast_thread = threading.Thread(target=self._broadcast_offers)
@@ -255,7 +263,6 @@ class SpeedTestServer:
         # Get local IP address
         hostname = socket.gethostname()
         ip_address = socket.gethostbyname(hostname)
-        #change this print later
         self.logger.info(f"Server started, listening on IP address {ip_address},{self.team_name}")
 
         try:
