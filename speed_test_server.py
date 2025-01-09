@@ -17,12 +17,16 @@ def setup_logger(name: str, color: str) -> logging.Logger:
     """Set up a colored logger with the specified name and color."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        f'{color}%(asctime)s - %(levelname)s - %(message)s{Style.RESET_ALL}'
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+
+    # Check if the logger already has handlers to prevent duplicate handlers
+    if not logger.hasHandlers():
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            f'{color}%(asctime)s - %(levelname)s - %(message)s{Style.RESET_ALL}'
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
     return logger
 
 
@@ -32,8 +36,9 @@ class SpeedTestServer:
     REQUEST_MESSAGE_TYPE = 0x3
     PAYLOAD_MESSAGE_TYPE = 0x4
 
-    def __init__(self, broadcast_port: int = 13117):
+    def __init__(self, team_name,broadcast_port: int = 13117):
         """Initialize the speed test server."""
+        self.team_name = team_name
         self.broadcast_port = broadcast_port
         self.tcp_port = self._get_random_port()
         self.udp_port = self._get_random_port()
@@ -87,7 +92,7 @@ class SpeedTestServer:
                 bytes_sent += current_chunk
 
             self.logger.info(
-                f"Completed TCP transfer of {file_size} bytes to {address}"
+                f"Completed TCP transfer of {file_size} bytes to {address},{self.team_name}"
             )
 
         except Exception as e:
@@ -195,8 +200,8 @@ class SpeedTestServer:
         # Get local IP address
         hostname = socket.gethostname()
         ip_address = socket.gethostbyname(hostname)
-
-        self.logger.info(f"Server started, listening on IP address {ip_address}")
+        #change this print later
+        self.logger.info(f"Server started, listening on IP address {ip_address},{self.team_name}")
 
         try:
             while True:
@@ -204,7 +209,3 @@ class SpeedTestServer:
         except KeyboardInterrupt:
             return
 
-
-if __name__ == "__main__":
-    server = SpeedTestServer()
-    server.start()

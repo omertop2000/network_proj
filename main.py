@@ -3,16 +3,15 @@ import time
 from speed_test_server import SpeedTestServer
 from speed_test_client import SpeedTestClient
 
+stop_event = threading.Event()
 
 def run_server(team_name):
-    server = SpeedTestServer()
-    print(f"{team_name} server started")
+    server = SpeedTestServer(team_name)
     server.start()
 
 
 def run_client(team_name, file_size, tcp_conns, udp_conns):
-    client = SpeedTestClient()
-    print(f"{team_name} client started")
+    client = SpeedTestClient(team_name)
 
     def input_simulator():
         return f"{file_size}\n{tcp_conns}\n{udp_conns}\n"
@@ -21,26 +20,36 @@ def run_client(team_name, file_size, tcp_conns, udp_conns):
 
 
 # Start servers
-threading.Thread(target=run_server, args=("Team Mystic",), daemon=True).start()
-# threading.Thread(target=run_server, args=("Team Valor",), daemon=True).start()
+server_threads = [
+    threading.Thread(target=run_server, args=("TheIndigenous_server ",), daemon=True),
+    threading.Thread(target=run_server, args=("Team Valor",), daemon=True),
+    threading.Thread(target=run_server, args=("123 ",), daemon=True),
+    threading.Thread(target=run_server, args=("567",), daemon=True),
+]
 
+for thread in server_threads:
+    thread.start()
 # Give servers time to start
 time.sleep(2)
 
 # Start clients
 client_threads = [
-    threading.Thread(target=run_client, args=("Team Instinct", 1024 * 1024 * 1024, 1, 2), daemon=True),
-    # threading.Thread(target=run_client, args=("Team Rocket", 1024 * 1024 * 1024, 1, 1), daemon=True),
-    # threading.Thread(target=run_client, args=("Team Beitar", 1024 * 1024 * 1024, 2, 1), daemon=True),
-    # threading.Thread(target=run_client, args=("Team Katamon", 1024 * 1024 * 1024, 1, 2), daemon=True)
+    threading.Thread(target=run_client, args=("TheIndigenous_client", 1024 * 1024 * 1024, 1, 2), daemon=True),
+    threading.Thread(target=run_client, args=("123", 1024 * 1024 * 1024, 1, 2), daemon=True)
 ]
 
 for thread in client_threads:
     thread.start()
 
-# Let the test run for a while
-test_duration = 60  # seconds
-print(f"Test running for {test_duration} seconds...")
-time.sleep(test_duration)
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    print("Shutting down...")
 
-print("Test complete. Check the console output for results.")
+# Signal all threads to stop
+stop_event.set()
+
+# Wait for all threads to finish
+for thread in server_threads + client_threads:
+    thread.join()

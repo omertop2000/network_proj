@@ -18,12 +18,16 @@ def setup_logger(name: str, color: str) -> logging.Logger:
     """Set up a colored logger with the specified name and color."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        f'{color}%(asctime)s - %(levelname)s - %(message)s{Style.RESET_ALL}'
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+
+    # Check if the logger already has handlers to prevent duplicate handlers
+    if not logger.hasHandlers():
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            f'{color}%(asctime)s - %(levelname)s - %(message)s{Style.RESET_ALL}'
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
     return logger
 
 
@@ -43,8 +47,9 @@ class SpeedTestClient:
     REQUEST_MESSAGE_TYPE = 0x3
     PAYLOAD_MESSAGE_TYPE = 0x4
 
-    def __init__(self, broadcast_port: int = 13117):
+    def __init__(self, team_name,broadcast_port: int = 13117):
         """Initialize the speed test client."""
+        self.team_name = team_name
         self.broadcast_port = broadcast_port
         self.running = False
         self.logger = setup_logger('SpeedTestClient', Fore.MAGENTA)
@@ -76,7 +81,16 @@ class SpeedTestClient:
             start_time = time.time()
 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect((server_address, server_port))
+                # Set a timeout of 10 seconds for the connection attempt
+                sock.settimeout(10)
+                try:
+                    sock.connect((server_address, server_port))
+                except socket.timeout:  # server is down although client is given "valid" server_address and server port
+                    self.logger.error(f"Connection to {server_address}:{server_port} timed out.")
+                    return
+                except socket.error as e:
+                    self.logger.error(f"Socket error during connection: {e}")
+                    return
 
                 # Send file size request
                 sock.send(f"{file_size}\n".encode())
@@ -196,6 +210,7 @@ class SpeedTestClient:
         while self.running:
             try:
                 # Get user parameters
+                #start up phase
                 file_size, tcp_conns, udp_conns = self._get_user_input()
 
                 # Listen for server offers
@@ -220,7 +235,7 @@ class SpeedTestClient:
                                 self.logger.warning("Received corrupted UDP offer packet, ignoring...")
                                 continue
 
-                            self.logger.info(f"Received offer from {server_addr}")
+                            self.logger.info(f"Received offer from {server_addr},{self.team_name}")
 
                             # Start transfer threads
                             threads = []
@@ -268,7 +283,3 @@ class SpeedTestClient:
             except Exception as e:
                 self.logger.error(f"Error in client main loop: {e}")
 
-
-if __name__ == "__main__":
-    client = SpeedTestClient()
-    client.start()
