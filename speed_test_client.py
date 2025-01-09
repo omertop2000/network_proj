@@ -48,7 +48,14 @@ class SpeedTestClient:
     PAYLOAD_MESSAGE_TYPE = 0x4
 
     def __init__(self, team_name,broadcast_port: int = 13117):
-        """Initialize the speed test client."""
+        """Initialize a new SpeedTestClient instance.
+    
+    Sets up client with statistics tracking, logging, and broadcast port
+    for server discovery.
+    
+    Args:
+        broadcast_port (int): Port to listen for server broadcasts. Defaults to 13117.
+    """
         self.team_name = team_name
         self.broadcast_port = broadcast_port
         self.running = False
@@ -56,7 +63,19 @@ class SpeedTestClient:
         self.stats_queue: queue.Queue[TransferStats] = queue.Queue()
 
     def _get_user_input(self) -> Tuple[int, int, int]:
-        """Get file size and connection counts from user."""
+         """Get test parameters from user.
+    
+    Prompts user for:
+    - File size in bytes
+    - Number of TCP connections
+    - Number of UDP connections
+    
+    Returns:
+        Tuple[int, int, int]: File size, TCP connections, UDP connections
+        
+    Raises:
+        ValueError: If input values are invalid
+    """
         while True:
             try:
                 print(f"{Fore.CYAN}Please enter the following parameters:{Style.RESET_ALL}")
@@ -76,7 +95,17 @@ class SpeedTestClient:
 
     def _handle_tcp_transfer(self, server_address: str, server_port: int,
                              file_size: int, transfer_num: int):
-        """Handle a single TCP transfer."""
+            """Handle single TCP file transfer.
+    
+    Creates TCP connection, requests file transfer, measures speed
+    and updates statistics.
+    
+    Args:
+        server_address (str): Server IP address
+        server_port (int): Server TCP port
+        file_size (int): Requested file size in bytes
+        transfer_num (int): Transfer identifier number
+    """
         try:
             start_time = time.time()
 
@@ -120,7 +149,17 @@ class SpeedTestClient:
 
     def _handle_udp_transfer(self, server_address: str, server_port: int,
                              file_size: int, transfer_num: int):
-        """Handle a single UDP transfer."""
+            """Handle single UDP file transfer.
+    
+    Sends UDP request, receives segmented response, tracks packet loss,
+    measures speed and updates statistics.
+    
+    Args:
+        server_address (str): Server IP address
+        server_port (int): Server UDP port
+        file_size (int): Requested file size in bytes
+        transfer_num (int): Transfer identifier number
+    """
         try:
             start_time = time.time()
 
@@ -184,7 +223,15 @@ class SpeedTestClient:
             self.logger.error(f"Error in UDP transfer {transfer_num}: {e}")
 
     def _print_transfer_stats(self):
-        """Print transfer statistics in a colorful format."""
+            """Print statistics for completed transfers.
+    
+    Outputs formatted statistics including:
+    - Transfer type (TCP/UDP)
+    - Transfer number
+    - Total time
+    - Transfer speed
+    - Packet loss (UDP only)
+    """
         while not self.stats_queue.empty():
             stats = self.stats_queue.get()
             if stats.transfer_type == "TCP":
@@ -203,8 +250,17 @@ class SpeedTestClient:
                 )
 
     def start(self):
-        """Start the speed test client."""
-        self.running = True
+    """Start the speed test client.
+    
+    Main client loop that:
+    1. Gets user parameters
+    2. Listens for server offers
+    3. Initiates concurrent transfers
+    4. Reports results
+    5. Returns to listening state
+    
+    Runs until interrupted.
+    """        self.running = True
         self.logger.info("Client started, listening for offer requests...")
 
         while self.running:
