@@ -30,13 +30,30 @@ def setup_logger(name: str, color: str) -> logging.Logger:
     return logger
 
 
+def get_server_ip():
+    hostname = socket.gethostname()
+    ip_address = socket.gethostbyname(hostname)
+    return ip_address
+
+
+def _get_random_port() -> int:
+    """Get an available random port number.
+
+    Returns:
+        int: An available port number that can be used for TCP or UDP connections.
+    """
+    with socket.socket() as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
+
 class SpeedTestServer:
     MAGIC_COOKIE = 0xabcddcba
     OFFER_MESSAGE_TYPE = 0x2
     REQUEST_MESSAGE_TYPE = 0x3
     PAYLOAD_MESSAGE_TYPE = 0x4
 
-    def __init__(self, team_name,broadcast_port: int = 13117):
+    def __init__(self, team_name, broadcast_port: int = 13117):
         """Initialize a new SpeedTestServer instance.
 
         Sets up the server with random TCP and UDP ports, initializes logging,
@@ -46,21 +63,12 @@ class SpeedTestServer:
             broadcast_port (int): Port number for broadcasting server offers. Defaults to 13117.
         """
         self.team_name = team_name
+        self.ip_address = get_server_ip()
         self.broadcast_port = broadcast_port
-        self.tcp_port = self._get_random_port()
-        self.udp_port = self._get_random_port()
+        self.tcp_port = _get_random_port()
+        self.udp_port = _get_random_port()
         self.running = False
         self.logger = setup_logger('SpeedTestServer', Fore.CYAN)
-
-    def _get_random_port(self) -> int:
-        """Get an available random port number.
-    
-        Returns:
-            int: An available port number that can be used for TCP or UDP connections.
-        """
-        with socket.socket() as s:
-            s.bind(('', 0))
-            return s.getsockname()[1]
 
     def _create_offer_message(self) -> bytes:
         """Create a formatted offer message for broadcasting.
@@ -92,8 +100,9 @@ class SpeedTestServer:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             while self.running:
                 try:
+                    self.logger.info(f"Server started, listening on IP address {self.ip_address}")
                     sock.sendto(self._create_offer_message(),
-                                ('<broadcast>', self.broadcast_port))
+                                ('<broadcast>', self.broadcast_port))  # broadcast_port is destination port for broadcasting which the client listens on
                     time.sleep(1)
                 except Exception as e:
                     self.logger.error(f"Error broadcasting offer: {e}")
@@ -113,6 +122,7 @@ class SpeedTestServer:
             Closes client socket when transfer is complete or on error.
         """
         try:
+            client_socket.settimeout(2)
             # Receive the requested file size
             size_str = client_socket.recv(1024).decode().strip()
             file_size = int(size_str)
@@ -133,22 +143,13 @@ class SpeedTestServer:
 
         except Exception as e:
             self.logger.error(f"Error handling TCP client {address}: {e}")
+        except socket.timeout:
+            self.logger.error(f"Client {address} timed out due to inactivity.")
         finally:
             client_socket.close()
 
     def _handle_udp_client(self, request: bytes, address: Tuple[str, int]):
-        """Handle individual UDP client requests.
-
-        Parses request for file size and sends data in segmented packets
-        with sequence numbers.
-
-        Args:
-            request (bytes): Client's request message containing file size
-            address (Tuple[str, int]): Client's address and port
-
-        Notes:
-            Implements small delay between packets to prevent network congestion.
-        """
+        """Handle individual UDP client requests with optimized segment size."""
         try:
             # Parse request
             magic_cookie, msg_type, file_size = struct.unpack('!IbQ', request)
@@ -157,32 +158,35 @@ class SpeedTestServer:
                 self.logger.warning("Received request corrupted UDP packet, ignoring...")
                 return
 
-            # Calculate total segments
-            segment_size = 1024
+            # Set maximum feasible segment size
+            segment_size = 64000  # Close to UDP max size (65,535 bytes - headers)
             total_segments = (file_size + segment_size - 1) // segment_size
 
+            # Pre-generate a payload of max size for efficiency
+            payload = b'\x00' * segment_size
+
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                # Increase socket buffer size for large packets
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65535)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65535)
+
+                header_base = struct.pack('!IbQ', self.MAGIC_COOKIE, self.PAYLOAD_MESSAGE_TYPE, total_segments)
+
                 for segment in range(total_segments):
                     remaining = file_size - (segment * segment_size)
-                    current_chunk = min(segment_size, remaining)
+                    current_chunk_size = min(segment_size, remaining)
 
-                    # Create payload packet
-                    header = struct.pack('!IbQQ',
-                                         self.MAGIC_COOKIE,
-                                         self.PAYLOAD_MESSAGE_TYPE,
-                                         total_segments,
-                                         segment
-                                         )
+                    # Trim payload to the current chunk size
+                    packet_payload = payload[:current_chunk_size]
 
-                    payload = random.randbytes(current_chunk)
-                    packet = header + payload
+                    # Create packet with header and payload
+                    header = header_base + struct.pack('!Q', segment)
+                    packet = header + packet_payload
 
+                    # Send the packet
                     sock.sendto(packet, address)
-                    time.sleep(0.001)  # Small delay to prevent overwhelming the network
 
-            self.logger.info(
-                f"Completed UDP transfer of {file_size} bytes to {address},{self.team_name}"
-            )
+            self.logger.info(f"Completed UDP transfer of {file_size} bytes to {address}, {self.team_name}")
 
         except Exception as e:
             self.logger.error(f"Error handling UDP client {address}: {e}")
@@ -199,7 +203,7 @@ class SpeedTestServer:
 
             while self.running:
                 try:
-                    client_socket, address = sock.accept()
+                    client_socket, address = sock.accept()  # thread is sleeping until client initiates connection
                     thread = threading.Thread(
                         target=self._handle_tcp_client,
                         args=(client_socket, address)
@@ -211,12 +215,12 @@ class SpeedTestServer:
                         self.logger.error(f"Error accepting TCP connection: {e}")
 
     def _start_udp_server(self):
-       """Start UDP server to handle client requests.
+        """Start UDP server to handle client requests.
 
         Listens for incoming UDP requests and spawns handler thread
         for each new client. Runs until server is stopped.
         """
-       with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.bind(('', self.udp_port))
 
             while self.running:
@@ -260,10 +264,6 @@ class SpeedTestServer:
         udp_thread.daemon = True
         udp_thread.start()
 
-        # Get local IP address
-        hostname = socket.gethostname()
-        ip_address = socket.gethostbyname(hostname)
-        self.logger.info(f"Server started, listening on IP address {ip_address},{self.team_name}")
 
         try:
             while True:
@@ -271,3 +271,11 @@ class SpeedTestServer:
         except KeyboardInterrupt:
             return
 
+
+def main():
+    server = SpeedTestServer("TheIndigenous_server")
+    server.start()
+
+
+if __name__ == "__main__":
+    main()

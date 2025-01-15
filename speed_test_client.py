@@ -41,13 +41,44 @@ class TransferStats:
     packets_received: Optional[float] = None
 
 
+def _get_user_input() -> Tuple[int, int, int]:
+    """Get test parameters from user.
+    Prompts user for:
+    - File size in bytes
+    - Number of TCP connections
+    - Number of UDP connections
+
+    Returns:
+        Tuple[int, int, int]: File size, TCP connections, UDP connections
+
+    Raises:
+        ValueError: If input values are invalid
+    """
+    while True:
+        try:
+            print(f"{Fore.CYAN}Please enter the following parameters:{Style.RESET_ALL}")
+            file_size = int(input("Enter file size (in bytes): "))
+            tcp_conns = int(input("Enter number of TCP connections: "))
+            udp_conns = int(input("Enter number of UDP connections: "))
+
+            if file_size <= 0 or tcp_conns < 0 or udp_conns < 0:
+                raise ValueError("Values must be positive")
+
+            if tcp_conns == 0 and udp_conns == 0:
+                raise ValueError("Must have at least one connection")
+
+            return file_size, tcp_conns, udp_conns
+        except ValueError as e:
+            print(f"{Fore.RED}Invalid input: {e}{Style.RESET_ALL}")
+
+
 class SpeedTestClient:
     MAGIC_COOKIE = 0xabcddcba
     OFFER_MESSAGE_TYPE = 0x2
     REQUEST_MESSAGE_TYPE = 0x3
     PAYLOAD_MESSAGE_TYPE = 0x4
 
-    def __init__(self, team_name,broadcast_port: int = 13117):
+    def __init__(self, team_name, broadcast_port: int = 13117):
         """Initialize a new SpeedTestClient instance.
         Sets up client with statistics tracking, logging, and broadcast port
         for server discovery.
@@ -60,36 +91,6 @@ class SpeedTestClient:
         self.running = False
         self.logger = setup_logger('SpeedTestClient', Fore.MAGENTA)
         self.stats_queue: queue.Queue[TransferStats] = queue.Queue()
-
-    def _get_user_input(self) -> Tuple[int, int, int]:
-        """Get test parameters from user.
-        Prompts user for:
-        - File size in bytes
-        - Number of TCP connections
-        - Number of UDP connections
-    
-        Returns:
-            Tuple[int, int, int]: File size, TCP connections, UDP connections
-        
-        Raises:
-            ValueError: If input values are invalid
-        """
-        while True:
-            try:
-                print(f"{Fore.CYAN}Please enter the following parameters:{Style.RESET_ALL}")
-                file_size = int(input("Enter file size (in bytes): "))
-                tcp_conns = int(input("Enter number of TCP connections: "))
-                udp_conns = int(input("Enter number of UDP connections: "))
-
-                if file_size <= 0 or tcp_conns < 0 or udp_conns < 0:
-                    raise ValueError("Values must be positive")
-
-                if tcp_conns == 0 and udp_conns == 0:
-                    raise ValueError("Must have at least one connection")
-
-                return file_size, tcp_conns, udp_conns
-            except ValueError as e:
-                print(f"{Fore.RED}Invalid input: {e}{Style.RESET_ALL}")
 
     def _handle_tcp_transfer(self, server_address: str, server_port: int,
                              file_size: int, transfer_num: int):
@@ -106,8 +107,8 @@ class SpeedTestClient:
             start_time = time.time()
 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                # Set a timeout of 10 seconds for the connection attempt
-                sock.settimeout(10)
+                # Set a timeout of 2 seconds for the connection attempt
+                sock.settimeout(2)
                 try:
                     sock.connect((server_address, server_port))
                 except socket.timeout:  # server is down although client is given "valid" server_address and server port
@@ -146,10 +147,10 @@ class SpeedTestClient:
     def _handle_udp_transfer(self, server_address: str, server_port: int,
                              file_size: int, transfer_num: int):
         """Handle single UDP file transfer.
-    
+
         Sends UDP request, receives segmented response, tracks packet loss,
         measures speed and updates statistics.
-    
+
         Args:
             server_address (str): Server IP address
             server_port (int): Server UDP port
@@ -160,6 +161,7 @@ class SpeedTestClient:
             start_time = time.time()
 
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65535)
                 # Send request
                 request = struct.pack('!IbQ',
                                       self.MAGIC_COOKIE,
@@ -175,8 +177,8 @@ class SpeedTestClient:
 
                 while time.time() - last_packet_time < 1:  # 1 second timeout
                     try:
-                        sock.settimeout(1.0)
-                        data, _ = sock.recvfrom(8192)
+                        sock.settimeout(1)
+                        data, _ = sock.recvfrom(65535)
                         last_packet_time = time.time()
 
                         # Parse header
@@ -186,7 +188,6 @@ class SpeedTestClient:
 
                         if magic_cookie != self.MAGIC_COOKIE or \
                                 msg_type != self.PAYLOAD_MESSAGE_TYPE:
-
                             self.logger.warning("Received corrupted UDP packet payout, ignoring...")
                             continue
 
@@ -259,14 +260,14 @@ class SpeedTestClient:
         while self.running:
             try:
                 # Get user parameters
-                #start up phase
-                file_size, tcp_conns, udp_conns = self._get_user_input()
+                # start up phase
+                file_size, tcp_conns, udp_conns = _get_user_input()
 
                 # Listen for server offers
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                     try:  # for linux os
                         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-                        sock.bind(('', self.broadcast_port))
+                        sock.bind(('', self.broadcast_port))  # client listen on port 13117 for broadcast messages
                     except Exception as ignore:  # for windows os
                         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                         sock.bind(('', self.broadcast_port))
@@ -332,3 +333,11 @@ class SpeedTestClient:
             except Exception as e:
                 self.logger.error(f"Error in client main loop: {e}")
 
+
+def main():
+    client = SpeedTestClient("TheIndigenous_server")
+    client.start()
+
+
+if __name__ == "__main__":
+    main()
